@@ -1,28 +1,18 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QLabel
+from PyQt5.QtWidgets import QApplication, QLabel, QMenu
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
 import objc
-
-# Try to import Cocoa constants; fail gracefully if not available (non-mac platforms)
-try:
-    from Cocoa import (
-        NSApplication,
-        NSApp,
-        NSFloatingWindowLevel,
-        NSApplicationActivationPolicyAccessory,
-        NSWindowCollectionBehaviorCanJoinAllSpaces,
-        NSWindowCollectionBehaviorFullScreenAuxiliary,
-        NSWindowCollectionBehaviorStationary,
-    )
-except Exception:
-    NSApp = None
-    NSFloatingWindowLevel = 3  # fallback
-    NSApplicationActivationPolicyAccessory = 2
-    # fallback bit values if Cocoa constants are missing
-    NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
-    NSWindowCollectionBehaviorFullScreenAuxiliary = 1 << 1
-    NSWindowCollectionBehaviorStationary = 1 << 2
+from Cocoa import (
+    NSApplication,
+    NSApp,
+    NSFloatingWindowLevel,
+    NSApplicationActivationPolicyAccessory,
+    NSWindowCollectionBehaviorCanJoinAllSpaces,
+    NSWindowCollectionBehaviorFullScreenAuxiliary,
+    NSWindowCollectionBehaviorStationary,
+)
+from Quartz import CGWindowLevelForKey, kCGMaximumWindowLevelKey
 
 class DesktopBuddy(QLabel):
     def __init__(self, image_path, scale=1.0):
@@ -51,68 +41,48 @@ class DesktopBuddy(QLabel):
         self._drag_pos = None
         self.show()
 
-        # macOS specific: try to make always-on-top even above fullscreen apps
+        # macOS specific: make always-on-top even above fullscreen apps
         self._make_always_on_top_macos()
 
     def _make_always_on_top_macos(self):
-        if NSApp is None:
-            return  # not running on macOS or Cocoa not available
+        # Make the app dockless / background (accessory)
+        NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
 
+        # Prefer the system maximum window level so the window appears above fullscreen apps
         try:
-            # Make the app dockless / background (accessory)
-            NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+            max_level = CGWindowLevelForKey(kCGMaximumWindowLevelKey)
         except Exception:
-            pass
+            max_level = NSFloatingWindowLevel
 
+        from ctypes import c_void_p
+
+        # Get the NSWindow for this PyQt window
+        nsview = objc.objc_object(c_void_p=int(self.winId()))
+        nswindow = nsview.window()
+
+        # Allow showing on all Spaces and mark as full-screen auxiliary so it can appear above fullscreen windows
+        behavior = (
+            NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehaviorFullScreenAuxiliary
+            | NSWindowCollectionBehaviorStationary
+        )
+        nswindow.setCollectionBehavior_(behavior)
+
+        # Set window level to maximum (or fallback)
         try:
-            # Prefer the system maximum window level so the window appears above fullscreen apps
-            try:
-                from Quartz import CGWindowLevelForKey, kCGMaximumWindowLevelKey
-                max_level = CGWindowLevelForKey(kCGMaximumWindowLevelKey)
-            except Exception:
-                max_level = NSFloatingWindowLevel
-
-            from ctypes import c_void_p
-
-            # Get the NSWindow for this PyQt window
-            nsview = objc.objc_object(c_void_p=int(self.winId()))
-            nswindow = nsview.window()
-
-            # Allow showing on all Spaces and mark as full-screen auxiliary so it can appear above fullscreen windows
-            behavior = (
-                NSWindowCollectionBehaviorCanJoinAllSpaces
-                | NSWindowCollectionBehaviorFullScreenAuxiliary
-                | NSWindowCollectionBehaviorStationary
-            )
-            try:
-                nswindow.setCollectionBehavior_(behavior)
-            except Exception:
-                pass
-
-            # Set window level to maximum (or fallback)
-            try:
-                nswindow.setLevel_(max_level)
-            except Exception:
-                try:
-                    nswindow.setLevel_(NSFloatingWindowLevel)
-                except Exception:
-                    pass
-
-            # Force front ordering
-            try:
-                nswindow.orderFrontRegardless()
-            except Exception:
-                try:
-                    nswindow.makeKeyAndOrderFront_(None)
-                except Exception:
-                    pass
-
-            # Raise and activate the Qt window as well
-            self.raise_()
-            self.activateWindow()
+            nswindow.setLevel_(max_level)
         except Exception:
-            # keep silent on failure; behavior will fall back to Qt's top hint
-            return
+            nswindow.setLevel_(NSFloatingWindowLevel)
+
+        # Force front ordering
+        try:
+            nswindow.orderFrontRegardless()
+        except Exception:
+            nswindow.makeKeyAndOrderFront_(None)
+
+        # Raise and activate the Qt window as well
+        self.raise_()
+        self.activateWindow()
 
     # Dragging handlers
     def mousePressEvent(self, event):
@@ -124,6 +94,21 @@ class DesktopBuddy(QLabel):
         if event.buttons() & Qt.LeftButton and self._drag_pos is not None:
             self.move(event.globalPos() - self._drag_pos)
             event.accept()
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        exit_action = menu.addAction("Exit")
+        exit_action.triggered.connect(self.close_app)
+        settings_action = menu.addAction("Settings")
+        settings_action.triggered.connect(self.open_settings)
+        menu.exec_(event.globalPos())
+
+    def close_app(self):
+        QApplication.quit()
+
+    def open_settings(self):
+        # Placeholder for settings dialog
+        print("Settings clicked")
 
 
 if __name__ == "__main__":
