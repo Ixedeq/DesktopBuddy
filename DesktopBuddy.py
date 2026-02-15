@@ -1,7 +1,8 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QLabel, QMenu
+import os
+from PyQt5.QtWidgets import QApplication, QLabel, QWidget, QVBoxLayout, QPushButton, QMenu
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QFile
 import objc
 from Cocoa import (
     NSApplication,
@@ -17,6 +18,7 @@ from Quartz import CGWindowLevelForKey, kCGMaximumWindowLevelKey
 class DesktopBuddy(QLabel):
     def __init__(self, image_path, scale=1.0):
         super().__init__()
+        self.scale = scale
 
         # Load and optionally scale image
         pixmap = QPixmap(image_path)
@@ -97,21 +99,65 @@ class DesktopBuddy(QLabel):
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
+        css_file = QFile("menu.css")
+        if css_file.open(QFile.ReadOnly | QFile.Text):
+            menu.setStyleSheet(str(css_file.readAll(), 'utf-8'))
+            css_file.close()
         exit_action = menu.addAction("Exit")
         exit_action.triggered.connect(self.close_app)
-        settings_action = menu.addAction("Settings")
-        settings_action.triggered.connect(self.open_settings)
+        settings_menu = menu.addMenu("Settings")
+        characters = [f for f in os.listdir("Characters/") if f.endswith('.png')]
+        for char in characters:
+            action = settings_menu.addAction(char)
+            action.triggered.connect(lambda checked, path="Characters/" + char: self.change_character(path))
         menu.exec_(event.globalPos())
 
     def close_app(self):
         QApplication.quit()
 
-    def open_settings(self):
-        # Placeholder for settings dialog
-        print("Settings clicked")
+    def change_character(self, image_path):
+        pixmap = QPixmap(image_path)
+        if self.scale != 1.0:
+            pixmap = pixmap.scaled(
+                int(pixmap.width() * self.scale),
+                int(pixmap.height() * self.scale),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+        self.setPixmap(pixmap)
 
+class CustomMenu(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+
+        # Load CSS from file
+        css_file = QFile("menu.css")
+        if css_file.open(QFile.ReadOnly | QFile.Text):
+            self.setStyleSheet(str(css_file.readAll(), 'utf-8'))
+            css_file.close()
+
+    def addButton(self, text, callback):
+        button = QPushButton(text)
+        button.setFlat(True)
+        button.clicked.connect(callback)
+        button.clicked.connect(self.hide)
+        self.layout.addWidget(button)
+        return button
+
+    def showMenu(self, pos):
+        self.move(pos)
+        self.show()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    # Force Qt to use the Fusion style for consistent rendering
+    app.setStyle("Fusion")
+
     buddy = DesktopBuddy("Characters/Rikka.png", scale=0.5)
     sys.exit(app.exec_())
