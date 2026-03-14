@@ -4,7 +4,8 @@ QMenu {
     border: 1px solid #e1e1e1;
     border-radius: 2px;
     padding: 12px 0;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    /* Use known macOS fonts instead of the missing -apple-system alias */
+    font-family: "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
     font-size: 14px;
     font-weight: 400;
 }
